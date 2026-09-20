@@ -1,0 +1,15 @@
+# test artifacts
+.test-all.out
+spec/data/*.actual
+
+# the golden corpus is generated but deliberately committed, so it is NOT
+# ignored; only ad-hoc TSV output in the working tree is
+/*.tsv
+
+# python
+__pycache__/
+*.py[cod]
+
+# editors / os
+*.swp
+.DS_Store

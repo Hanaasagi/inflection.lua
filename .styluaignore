@@ -1,0 +1,4 @@
+# Generated files - formatting them would fight the generators.
+lua/inflection/data.lua
+lua/inflection/rules.lua
+spec/data/

@@ -1,0 +1,103 @@
+name: test
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        lua-version:
+          - { name: luajit, install: "sudo apt-get install -y luajit" }
+          - { name: lua5.1, install: "sudo apt-get install -y lua5.1" }
+          - { name: lua5.2, install: "sudo apt-get install -y lua5.2" }
+          - { name: lua5.3, install: "sudo apt-get install -y lua5.3" }
+          - { name: lua5.4, install: "sudo apt-get install -y lua5.4" }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ${{ matrix.lua-version.name }}
+        run: ${{ matrix.lua-version.install }}
+
+      - name: Run the suite
+        run: ${{ matrix.lua-version.name }} spec/run.lua
+
+  busted:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: leafo/gh-actions-lua@v10
+        with:
+          luaVersion: "5.4"
+
+      - uses: leafo/gh-actions-luarocks@v4
+
+      - name: Install busted
+        run: luarocks install busted
+
+      - name: Run the suite under busted
+        run: busted
+
+  # Four files in this repository are generated but committed, so that `make
+  # test` needs nothing but a Lua interpreter. That makes staleness possible:
+  # someone edits a generator, or upstream moves, and the committed copy quietly
+  # stops matching what the generator would now produce.
+  #
+  # This job re-runs every generator and fails if the working tree changed.
+  # `git diff --exit-code` exits non-zero when there is any diff.
+  #
+  # The generators are deterministic given their inputs, so the inputs are
+  # pinned: the reference implementation to 0.5.1 (both the wheel and the source
+  # tag), and the Unicode Character Database indirectly through python-version.
+  generated:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # Pinned because tools/gen_unicode_data.py snapshots the Unicode
+          # database that ships with the interpreter. Bump this together with
+          # `make unicode-data`.
+          python-version: "3.14"
+
+      - name: Check the Unicode database version against the committed tables
+        run: |
+          recorded=$(sed -n 's/^-- Generated from CPython .* (Unicode database \([0-9][0-9.]*\))\.$/\1/p' lua/inflection/data.lua)
+          actual=$(python3 -c 'import unicodedata; print(unicodedata.unidata_version)')
+          echo "data.lua was generated with Unicode $recorded; this runner has $actual"
+          if [ -z "$recorded" ]; then
+            echo "::error::could not read the Unicode database version out of lua/inflection/data.lua"
+            exit 1
+          fi
+          if [ "$recorded" != "$actual" ]; then
+            echo "::error::Unicode database mismatch: data.lua records $recorded but python3 provides $actual."
+            echo "Either pin python-version to a release shipping Unicode $recorded, or run"
+            echo "'make unicode-data' under this interpreter and commit the result."
+            exit 1
+          fi
+
+      - name: Install the reference implementation
+        run: pip install inflection==0.5.1
+
+      - name: Clone the upstream source tree (for its test suite)
+        run: git clone --depth 1 --branch 0.5.1 https://github.com/jpvanhal/inflection /tmp/upstream
+
+      - name: Regenerate everything
+        run: |
+          python3 tools/gen_unicode_data.py
+          python3 tools/gen_rules.py --upstream-src /tmp/upstream
+          python3 tools/gen_upstream_cases.py --upstream-src /tmp/upstream
+          python3 tools/gen_corpus.py
+
+      - name: Fail if the committed files differ
+        run: |
+          if ! git diff --exit-code lua/inflection/rules.lua lua/inflection/data.lua spec/data/; then
+            echo "::error::Generated files are stale. Run 'make regen UPSTREAM=/path/to/inflection' and commit."
+            exit 1
+          fi

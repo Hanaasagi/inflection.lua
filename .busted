@@ -1,0 +1,9 @@
+-- Configuration for running the suite under real busted:  busted
+-- The bundled harness (spec/harness.lua) provides the same API subset, so
+-- `luajit spec/run.lua` needs no dependencies at all.
+return {
+  default = {
+    ROOT = { "spec" },
+    pattern = "_spec",
+  },
+}
