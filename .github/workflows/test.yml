@@ -88,16 +88,42 @@ jobs:
       - name: Clone the upstream source tree (for its test suite)
         run: git clone --depth 1 --branch 0.5.1 https://github.com/jpvanhal/inflection /tmp/upstream
 
-      - name: Regenerate everything
+      - name: Regenerate everything twice and require identical output
+        shell: bash
         run: |
-          python3 tools/gen_unicode_data.py
-          python3 tools/gen_rules.py --upstream-src /tmp/upstream
-          python3 tools/gen_upstream_cases.py --upstream-src /tmp/upstream
-          python3 tools/gen_corpus.py
+          GENERATED="lua/inflection/rules.lua lua/inflection/data.lua \
+                     spec/data/upstream_cases.lua spec/data/golden_corpus.tsv"
+
+          regen() {
+            export PYTHONHASHSEED="$1"
+            python3 tools/gen_unicode_data.py
+            python3 tools/gen_rules.py --upstream-src /tmp/upstream
+            python3 tools/gen_upstream_cases.py --upstream-src /tmp/upstream
+            python3 tools/gen_corpus.py
+          }
+
+          regen 1
+          mkdir -p /tmp/pass1
+          for f in $GENERATED; do cp "$f" "/tmp/pass1/$(basename "$f")"; done
+
+          # Second pass under a different hash seed. CPython randomises string
+          # hashing per process, and upstream parametrizes test_uncountability
+          # over a set, so a generator that leaked iteration order into its
+          # output would produce a different file here than above.
+          regen 999
+          for f in $GENERATED; do
+            if ! diff -u "/tmp/pass1/$(basename "$f")" "$f"; then
+              echo "::error::$f is not reproducible across PYTHONHASHSEED values"
+              exit 1
+            fi
+          done
+          echo "generators are deterministic across PYTHONHASHSEED"
 
       - name: Fail if the committed files differ
         run: |
           if ! git diff --exit-code lua/inflection/rules.lua lua/inflection/data.lua spec/data/; then
             echo "::error::Generated files are stale. Run 'make regen UPSTREAM=/path/to/inflection' and commit."
+            echo "If only a header line differs, the generator recorded something"
+            echo "environment specific - see the note in tools/README.md."
             exit 1
           fi

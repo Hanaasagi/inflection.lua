@@ -72,7 +72,11 @@ def main():
               ("UPPER", collect(lambda c: c.upper())),
               ("LOWER", collect(lambda c: c.lower()))]
 
-    body = [HEADER % (sys.version.split()[0], unicodedata.unidata_version), "local M = {}"]
+    # Only major.minor is recorded: the tables are a function of the Unicode
+    # database version, and embedding the patch level would make the output
+    # differ between any two CPython builds that are otherwise identical.
+    body = [HEADER % ("%d.%d" % sys.version_info[:2], unicodedata.unidata_version),
+            "local M = {}"]
     for name, table in tables:
         keys, values = encode_table(table)
         body.append("")

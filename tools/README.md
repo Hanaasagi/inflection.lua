@@ -38,6 +38,27 @@ make golden                         # just the differential corpus
 
 Always run `make test` afterwards.
 
+## Determinism
+
+Every generator must be reproducible. CI regenerates all four files twice under
+different `PYTHONHASHSEED` values and fails if the two passes disagree, then
+fails again if the result differs from what is committed. Two rules follow.
+
+**Do not record anything environment specific in a generated file.**
+`gen_unicode_data.py` writes the CPython *minor* version and the Unicode
+database version into the header of `data.lua`, never the patch level. Two
+builds of CPython 3.14 produce identical tables, so recording `3.14.7` would
+make the committed file unreproducible from any machine whose patch level
+differs - which is what CI's `setup-python` resolves to.
+
+**Do not let set or dict iteration order reach the output.**
+`gen_upstream_cases.py` sorts its rows for exactly this reason. Upstream
+parametrizes `test_uncountability` over `inflection.UNCOUNTABLES`, a set, whose
+iteration order moves with `PYTHONHASHSEED`, and CPython randomises that per
+process. Recording order therefore differed between runs, and CI reported the
+committed file as stale whenever the runner drew a different seed than the
+machine that generated it.
+
 ## Notes for maintainers
 
 **`gen_rules.py`** emits the patterns verbatim, in their original Python regex

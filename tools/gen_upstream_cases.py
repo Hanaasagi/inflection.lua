@@ -140,9 +140,22 @@ def emit_lua(calls, executed, version):
         extra = ""
         if call["unc_extra"]:
             extra = ", { %s }" % ", ".join(lua_string(u) for u in call["unc_extra"])
-        rows.append("  { %s, %s, { %s }, %s%s }," % (
+        line = "  { %s, %s, { %s }, %s%s }," % (
             lua_string(call["test"]), lua_string(call["fn"]),
-            ", ".join(value(a) for a in call["args"]), value(call["out"]), extra))
+            ", ".join(value(a) for a in call["args"]), value(call["out"]), extra)
+        # Sort key for a stable output order - see the note below.
+        order = (call["test"], call["fn"],
+                 json.dumps(call["args"], ensure_ascii=False),
+                 json.dumps(call["out"], ensure_ascii=False),
+                 tuple(call["unc_extra"]))
+        rows.append((order, line))
+
+    # Recording order follows the reference suite's execution order, which is not
+    # reproducible: test_uncountability is parametrized over
+    # `inflection.UNCOUNTABLES`, a set, so its order moves with PYTHONHASHSEED.
+    # Sort instead, keeping rows grouped by the test that produced them.
+    rows.sort(key=lambda row: row[0])
+    rows = [line for _, line in rows]
 
     body = HEADER % {"version": version, "ncases": executed, "nfails": 0,
                      "ncalls": len(calls), "nrows": len(rows)}
